@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "entityType": "sku",
+  "records": {
+    "default-sku": {
+      "skuCode": "TEST-SKU-001",
+      "productCode": "TEST-PRODUCT-001"
+    }
+  }
+}

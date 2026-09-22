@@ -1,0 +1,15 @@
+{
+  "name": "@aiprod/pw-test-workspace",
+  "version": "0.1.0",
+  "private": false,
+  "bin": {
+    "pw-test-workspace": "dist/commands/testWorkspaceCli.js"
+  },
+  "dependencies": {
+    "typescript": "5.9.3"
+  },
+  "files": [
+    "dist/",
+    "framework/"
+  ]
+}

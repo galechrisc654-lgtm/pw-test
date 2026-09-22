@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "defaults": {
+    "environment": "dev",
+    "database": "example_database"
+  },
+  "integrations": {
+    "example_database": {
+      "adapter": "usql",
+      "enabled": false,
+      "params": {
+        "engine": "mysql",
+        "host": "{database_host}",
+        "port": 3306,
+        "database": "{database_name}",
+        "username": "{database_username}",
+        "password": "${secret:DATABASE_PASSWORD}",
+        "access": "readonly",
+        "executable_path": "${local:USQL_PATH}"
+      }
+    },
+    "example_source_code": {
+      "adapter": "external-resource",
+      "enabled": false,
+      "params": {
+        "kind": "source_code",
+        "path": "${local:SOURCE_CODE_PATH}",
+        "access": "readonly",
+        "description": "Local source code repository used for product-spec-to-code review."
+      }
+    },
+    "example_karate": {
+      "adapter": "karate-cli-ka",
+      "enabled": false,
+      "params": {
+        "java_path": "${local:JAVA_PATH}",
+        "karate_jar": "${local:KARATE_JAR_PATH}",
+        "default_environment": "test",
+        "environments": {
+          "test": {
+            "base_url": "{primary_test_service_base_url}",
+            "contract_bindings": [
+              {
+                "service": "primary-api",
+                "environment": "test"
+              }
+            ],
+            "deployment": {
+              "version": "{deployed_build_or_release_version}"
+            },
+            "variables": {
+              "tenant_id": "{test_tenant_id}"
+            },
+            "accounts": {
+              "administrator": {
+                "username": "${secret:PRIMARY_TEST_ADMIN_USERNAME}",
+                "password": "${secret:PRIMARY_TEST_ADMIN_PASSWORD}"
+              }
+            }
+          }
+        }
+      }
+    },
+    "example_playwright": {
+      "adapter": "playwright-cli-pw",
+      "enabled": false,
+      "params": {
+        "agent_project": "chromium",
+        "default_environment": "test",
+        "environments": {
+          "test": {
+            "base_url": "{primary_test_service_base_url}",
+            "web_base_url": "{primary_test_web_base_url}",
+            "contract_bindings": [
+              {
+                "service": "primary-api",
+                "environment": "test"
+              }
+            ],
+            "deployment": {
+              "version": "{deployed_build_or_release_version}"
+            },
+            "variables": {
+              "tenant_id": "{test_tenant_id}"
+            },
+            "accounts": {
+              "administrator": {
+                "username": "${secret:PRIMARY_TEST_ADMIN_USERNAME}",
+                "password": "${secret:PRIMARY_TEST_ADMIN_PASSWORD}"
+              }
+            }
+          }
+        }
+      }
+    },
+    "lark_cli": {
+      "adapter": "lark-cli",
+      "enabled": false,
+      "params": {
+        "default_as": "auto",
+        "allowed_domains": [
+          "docs",
+          "wiki",
+          "drive",
+          "base",
+          "sheets",
+          "im"
+        ],
+        "access": "readonly",
+        "description": "Lark CLI integration for Feishu. Enable and authorize locally before use."
+      }
+    }
+  }
+}

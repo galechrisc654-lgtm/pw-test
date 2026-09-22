@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "defaults": {
+    "environment": "test",
+    "timeout_ms": 30000,
+    "output_root": "resources/api_contracts"
+  },
+  "code_roots": [
+    {
+      "id": "primary-backend",
+      "path": "${local:PRIMARY_BACKEND_SOURCE_ROOT}"
+    },
+    {
+      "id": "primary-frontend",
+      "path": "${local:PRIMARY_FRONTEND_SOURCE_ROOT}"
+    }
+  ],
+  "services": [
+    {
+      "id": "primary-api",
+      "name": "主要 API 服务",
+      "enabled": true,
+      "document_source": {
+        "url": "${local:PRIMARY_OPENAPI_DOCUMENT_URL}",
+        "headers": {}
+      }
+    },
+    {
+      "id": "secondary-api",
+      "name": "其他 API 服务",
+      "enabled": false,
+      "environment": "test",
+      "timeout_ms": 30000,
+      "document_source": {
+        "url": "${local:SECONDARY_OPENAPI_DOCUMENT_URL}",
+        "headers": {
+          "Authorization": "${secret:SECONDARY_OPENAPI_AUTHORIZATION}"
+        }
+      }
+    }
+  ]
+}
