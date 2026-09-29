@@ -94,7 +94,7 @@ OpenAPI 是否显式收录只决定发现起点，不改变可信标准。按 `v
 
 验证状态表示当前校准流程结论，验证等级表示证据深度：`L0` 仅发现、`L1` 结构对齐、`L2` 已能确定可调用格式、`L3` 已有当前指纹下的真实运行证据。历史 `verified` 缺少等级时按 L2 兼容，不批量重验。需要数组、对象或其他特殊线格式时，在 operation 下维护具名 `request_profiles`；profile 独立记录等级、序列化和执行器适配，用例通过 `request_profile` 选择，不能按测试数据值全局推断。
 
-测试执行与等级升级必须分离。`karate_test_run` 不得写入 registry；一次测试结束后，Agent 另行进入契约维护，核对 `run-metadata.json` 中的 Contract 快照、部署关联、当前 fingerprint、实际使用的 profile 和原生报告，再显式调用 `api_contract_registry set` 升级到 L3。业务断言通过不能自动证明另一个 profile，关联不一致、失败或证据不完整时不升级。
+测试执行与等级升级必须分离。测试运行器不得写入 registry；一次测试结束后，Agent 另行进入契约维护，核对 `run-metadata.json` 中的 Contract 快照、部署关联、解析后的当前 `resolved_fingerprint`、实际使用的 profile 和原生报告，再显式调用 `api_contract_registry set` 升级到 L3。资产通过历史兼容指纹解析时，声明的旧指纹只用于追溯，不作为 L3 基准。业务断言通过不能自动证明另一个 profile，关联不一致、失败或证据不完整时不升级。
 
 补充或修正契约后，先调用 `openapi_document_builder` 重新合成维护版并生成 `operations.json`，再调用 `api_contract_registry sync` 使新增和变化项回到 `pending`。然后用 `api_contract_registry set` 更新本次目标接口或业务变体的状态；最后以最新登记表再次构建，使 `openapi.resolved.json` 中的 `x-api-contract-verification` 与登记状态一致。构建成功、哈希和接口数量以工具摘要确认，无需读取生成文档全文。
 

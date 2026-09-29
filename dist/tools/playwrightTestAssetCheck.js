@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.playwrightTestAssetCheckTool = void 0;
+exports.playwrightContractReferences = playwrightContractReferences;
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
 const typescript_1 = __importDefault(require("typescript"));
@@ -109,6 +110,30 @@ function parse(projectRoot, assetRoot, file) {
         imports: [...new Set(imports)],
     };
 }
+function playwrightContractReferences(projectRoot, files) {
+    const assetRoot = node_path_1.default.join(projectRoot, "resources", "api_test_scenarios-pw");
+    const pending = files.map((file) => node_path_1.default.resolve(file));
+    const visited = new Set();
+    const references = new Map();
+    while (pending.length > 0) {
+        const file = pending.shift();
+        if (visited.has(file) || !node_fs_1.default.existsSync(file))
+            continue;
+        visited.add(file);
+        const asset = parse(projectRoot, assetRoot, file);
+        pending.push(...asset.imports);
+        for (const item of asset.contracts) {
+            if (!item.service || !item.operationId || !item.fingerprint)
+                continue;
+            const reference = {
+                service: item.service, operation_id: item.operationId, fingerprint: item.fingerprint,
+                ...(item.requestProfile ? { request_profile: item.requestProfile } : {}),
+            };
+            references.set(`${reference.service}:${reference.operation_id}:${reference.fingerprint}:${reference.request_profile ?? ""}`, reference);
+        }
+    }
+    return [...references.values()];
+}
 function contractIssues(projectRoot, asset) {
     const issues = [];
     if (asset.kind === "action" && asset.contracts.length === 0)
@@ -135,7 +160,7 @@ function contractIssues(projectRoot, asset) {
         }
         if (operation.lifecycle !== "active")
             issues.push({ code: "inactive-contract-operation", file: asset.relative, message: `Operation ${label} must be active.` });
-        if (operation.fingerprint !== ref.fingerprint)
+        if (!(0, apiContractVerification_1.resolveDeclaredFingerprint)(operation, ref.fingerprint))
             issues.push({ code: "contract-fingerprint-mismatch", file: asset.relative, message: `Fingerprint for ${label} does not match.` });
         if (!(0, apiContractVerification_1.isCallableOperation)(operation))
             issues.push({ code: "uncallable-contract-operation", file: asset.relative, message: `Operation ${label} must be verified at L2 or above.` });

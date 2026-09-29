@@ -1,6 +1,6 @@
 # Playwright Test Run
 
-`playwright_test_run` 在当前产品工作区上下文中，通过 AIProd 用户级共享 Runtime 执行固定版本 Playwright；`playwright-cli-pw` integration 只提供当前产品环境。工具输出 HTML、JSON、Trace/附件、日志和无密钥 `run-metadata.json`，正式运行自动追加 PW Test Run。
+`playwright_test_run` 在当前产品工作区上下文中，通过 AIProd 用户级共享 Runtime 执行固定版本 Playwright；`playwright-cli-pw` integration 只提供当前产品环境。工具输出 HTML、JSON、Trace/附件、日志和无密钥 `run-metadata.json`，正式运行自动追加 PW Test Run。实际 Spec 及递归导入资产声明的 Contract 会写入运行快照；历史兼容指纹同时记录资产声明值和解析后的当前 v3 指纹，执行与后续 L3 核查均使用解析后的当前指纹。
 
 ## 正式运行
 

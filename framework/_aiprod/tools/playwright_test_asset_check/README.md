@@ -11,4 +11,4 @@ node .\_aiprod\runtime\aiprod-launcher.cjs run playwright_test_asset_check `
 
 省略 `--target` 时同时检查公共资产以及 Change、独立范围中的 `testing-pw/tests/`。`--write-index` 只根据公共资产重建 `resources/api_test_scenarios-pw/index.md`。
 
-Action 必须声明直接 Contract；Action、`flows/{domain}/{flow-id}/flow.ts`、Page、Component 必须声明稳定 ID。Flow 的 `profiles.json`、`internal/` 及 `support/` 模块不进入公共资产索引。正式 Spec 必须声明 `caseId` 和 `mode: api|ui|hybrid`。动态导入和运行时构造的元数据不作为可验证声明，应改为静态字面量。目录组织示例见 `resources/api_test_scenarios-pw/README.md`，本工具不强制验证目录方向。检查通过只说明可检查规则一致，不代表 TypeScript 类型正确或业务运行通过。
+Action 必须声明直接 Contract；引用必须在同 service、同 operation 内匹配当前 fingerprint 或迁移工具登记的历史兼容指纹，并且当前 operation 仍为 `active + verified + L2 以上`。新建或维护资产只写当前指纹。Action、`flows/{domain}/{flow-id}/flow.ts`、Page、Component 必须声明稳定 ID。Flow 的 `profiles.json`、`internal/` 及 `support/` 模块不进入公共资产索引。正式 Spec 必须声明 `caseId` 和 `mode: api|ui|hybrid`。动态导入和运行时构造的元数据不作为可验证声明，应改为静态字面量。目录组织示例见 `resources/api_test_scenarios-pw/README.md`，本工具不强制验证目录方向。检查通过只说明可检查规则一致，不代表 TypeScript 类型正确或业务运行通过。

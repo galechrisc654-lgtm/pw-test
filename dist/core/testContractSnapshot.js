@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.contractSnapshot = contractSnapshot;
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
+const apiContractVerification_1 = require("../tools/apiContractVerification");
 function isRecord(value) {
     return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -27,7 +28,7 @@ function readJsonObject(file, label) {
         throw new Error(`${label} must be a JSON object`);
     return value;
 }
-function contractSnapshot(projectRoot, targetEnvironment) {
+function contractSnapshot(projectRoot, targetEnvironment, declaredReferences = []) {
     const rawBindings = targetEnvironment.contract_bindings;
     const deploymentValue = isRecord(targetEnvironment.deployment) ? targetEnvironment.deployment : {};
     const deploymentVersion = typeof deploymentValue.version === "string" && deploymentValue.version.trim() ? deploymentValue.version.trim() : undefined;
@@ -84,5 +85,30 @@ function contractSnapshot(projectRoot, targetEnvironment) {
     const hasAssociation = rawBindings !== undefined || Boolean(deploymentVersion) || hasRevisions;
     const fullyMatched = rawBindings !== undefined && hasRevisions && !Object.values(codeAlignment).includes("unknown");
     const alignment = !hasAssociation ? "unconfigured" : fullyMatched ? "matched" : "partially_matched";
-    return { alignment, bindings, deployment: { ...(deploymentVersion ? { version: deploymentVersion } : {}), code_revisions: codeRevisions, code_alignment: codeAlignment } };
+    const registries = new Map();
+    const operations = declaredReferences.map((reference) => {
+        let registry = registries.get(reference.service);
+        if (!registry) {
+            registry = readJsonObject(node_path_1.default.join(projectRoot, "resources", "api_contracts", reference.service, "registry.json"), `Contract registry for ${reference.service}`);
+            registries.set(reference.service, registry);
+        }
+        const entries = Array.isArray(registry.operations) ? registry.operations : [];
+        const operation = entries.find((item) => isRecord(item) && item.operation_id === reference.operation_id);
+        if (!operation)
+            throw new Error(`Contract operation not found: ${reference.service}:${reference.operation_id}`);
+        if (operation.lifecycle !== "active")
+            throw new Error(`Contract operation is not active: ${reference.service}:${reference.operation_id}`);
+        const resolution = (0, apiContractVerification_1.resolveDeclaredFingerprint)(operation, reference.fingerprint);
+        if (!resolution)
+            throw new Error(`Contract fingerprint does not match current or compatible fingerprint: ${reference.service}:${reference.operation_id}`);
+        if (!(0, apiContractVerification_1.isCallableOperation)(operation))
+            throw new Error(`Contract operation is not verified at L2 or above: ${reference.service}:${reference.operation_id}`);
+        if (reference.request_profile) {
+            const profile = (0, apiContractVerification_1.requestProfiles)(operation)[reference.request_profile];
+            if (!profile || !(0, apiContractVerification_1.levelAtLeast)(profile.verification_level, "L2"))
+                throw new Error(`Contract request profile is not verified at L2 or above: ${reference.service}:${reference.operation_id}:${reference.request_profile}`);
+        }
+        return { ...reference, ...resolution };
+    });
+    return { alignment, bindings, operations, deployment: { ...(deploymentVersion ? { version: deploymentVersion } : {}), code_revisions: codeRevisions, code_alignment: codeAlignment } };
 }

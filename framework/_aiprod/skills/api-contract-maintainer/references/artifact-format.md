@@ -209,6 +209,8 @@ resources/api_contracts/
 
 验证只对当前 `fingerprint` 有效。同步时只要指纹变化，旧的 `verified` 自动失效并回到 `pending`。
 
+指纹算法迁移确认结构未变时，registry 可由工具在 operation 下保存 `compatible_fingerprints: [{ version, fingerprint }]`。它只解析同 service、同 operation 的历史资产声明，不代表旧指纹仍是当前契约，也不能替代当前 `verified_fingerprint`。真实契约变化或 operation 删除时工具必须清除兼容别名；新资产只引用当前指纹。
+
 ## 源码版本证据
 
 不新增专用状态文件。源码版本定位结果写入对应接口的证据摘要，并在本次维护报告中集中列出。建议使用稳定、可检索的单行格式：

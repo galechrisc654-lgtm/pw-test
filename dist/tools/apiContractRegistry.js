@@ -104,6 +104,7 @@ function syncRegistry(catalog, existing, now) {
                 status_reason: "operation_removed",
                 verified_at: undefined,
                 verified_fingerprint: undefined,
+                compatible_fingerprints: undefined,
             });
         }
     }
@@ -117,6 +118,86 @@ function syncRegistry(catalog, existing, now) {
         operations,
     };
 }
+function migrateFingerprintRegistry(catalog, baseline, previousDocumentText, now) {
+    if (baseline.service !== catalog.service || baseline.environment !== catalog.environment) {
+        throw new Error("Previous registry does not match catalog service/environment");
+    }
+    const invalidCatalog = catalog.operations.find((item) => item.fingerprint_version !== 3);
+    if (invalidCatalog)
+        throw new Error(`Current catalog must use fingerprint_version 3: ${invalidCatalog.key}`);
+    const previousDocument = (0, openapi_1.parseOpenApi)(previousDocumentText, "Previous resolved OpenAPI document");
+    const previousV2 = new Map((0, openapi_1.operationCatalogForFingerprintVersion)(previousDocument, 2).map((item) => [item.key, item]));
+    const previousV3 = new Map((0, openapi_1.operationCatalogForFingerprintVersion)(previousDocument, 3).map((item) => [item.key, item]));
+    const prior = new Map((0, openapi_1.withStableOperationIds)(baseline.operations).map((item) => [item.key, item]));
+    for (const previous of prior.values()) {
+        if (previous.lifecycle === "removed")
+            continue;
+        if (previous.fingerprint_version !== 2)
+            throw new Error(`Previous registry must use fingerprint_version 2: ${previous.key}`);
+        const documentOperation = previousV2.get(previous.key);
+        if (!documentOperation || documentOperation.fingerprint !== previous.fingerprint) {
+            throw new Error(`Previous registry fingerprint does not match previous document: ${previous.key}`);
+        }
+    }
+    const summary = { from_version: 2, to_version: 3, preserved: 0, changed: 0, added: 0, removed: 0, compatible_aliases: 0 };
+    const catalogOperations = (0, openapi_1.withStableOperationIds)(catalog.operations);
+    const currentKeys = new Set(catalogOperations.map((item) => item.key));
+    const operations = catalogOperations.map((item) => {
+        const previous = prior.get(item.key);
+        const previousShape = previousV3.get(item.key);
+        if (!previous || previous.lifecycle === "removed" || !previousShape) {
+            summary.added += 1;
+            return { ...item, lifecycle: "active", verification_status: "pending", verification_level: "L0", status_reason: "new_operation" };
+        }
+        if (previousShape.fingerprint !== item.fingerprint) {
+            summary.changed += 1;
+            return { ...item, lifecycle: "active", verification_status: "pending", verification_level: "L0", status_reason: "contract_changed" };
+        }
+        summary.preserved += 1;
+        summary.compatible_aliases += 1;
+        const migrated = {
+            ...previous,
+            ...item,
+            compatible_fingerprints: [
+                ...(previous.compatible_fingerprints ?? []),
+                { version: 2, fingerprint: previous.fingerprint },
+            ].filter((candidate, index, values) => values.findIndex((item) => item.version === candidate.version && item.fingerprint === candidate.fingerprint) === index),
+            verification_level: previous.verification_level ?? (previous.verification_status === "verified" ? "L2" : "L0"),
+            lifecycle: previous.lifecycle === "deprecated" ? "deprecated" : "active",
+        };
+        if (previous.verification_status === "verified" || previous.verified_fingerprint === previous.fingerprint) {
+            migrated.verified_fingerprint = item.fingerprint;
+        }
+        return migrated;
+    });
+    for (const previous of prior.values()) {
+        if (currentKeys.has(previous.key))
+            continue;
+        summary.removed += 1;
+        operations.push({
+            ...previous,
+            lifecycle: "removed",
+            verification_status: "pending",
+            verification_level: "L0",
+            status_reason: "operation_removed",
+            verified_at: undefined,
+            verified_fingerprint: undefined,
+            compatible_fingerprints: undefined,
+        });
+    }
+    operations.sort((a, b) => a.path.localeCompare(b.path) || a.method.localeCompare(b.method));
+    return {
+        registry: {
+            version: 1,
+            service: catalog.service,
+            environment: catalog.environment,
+            document_sha256: catalog.document_sha256,
+            synced_at: now,
+            operations,
+        },
+        migration: summary,
+    };
+}
 function runApiContractRegistry(options) {
     try {
         const catalogFile = targetPath(options.projectRoot, options.catalogValue, "--catalog");
@@ -125,10 +206,24 @@ function runApiContractRegistry(options) {
         const catalog = readJson(catalogFile, "catalog");
         validateCatalog(catalog);
         const now = new Date().toISOString();
-        const existing = node_fs_1.default.existsSync(registryFile) ? readJson(registryFile, "registry") : undefined;
+        const usesSeparateMigrationBaseline = options.action === "migrate-fingerprint" && Boolean(options.previousRegistryValue);
+        const existing = !usesSeparateMigrationBaseline && node_fs_1.default.existsSync(registryFile) ? readJson(registryFile, "registry") : undefined;
         let registry;
+        let migration;
         if (options.action === "sync") {
             registry = syncRegistry(catalog, existing, now);
+        }
+        else if (options.action === "migrate-fingerprint") {
+            const previousDocumentFile = targetPath(options.projectRoot, options.previousDocumentValue ?? "", "--previous-document");
+            const previousRegistryFile = options.previousRegistryValue
+                ? targetPath(options.projectRoot, options.previousRegistryValue, "--previous-registry")
+                : registryFile;
+            if (!node_fs_1.default.existsSync(previousRegistryFile))
+                throw new Error("Previous registry does not exist; provide --previous-registry or an existing --registry");
+            const baseline = readJson(previousRegistryFile, "previous registry");
+            const result = migrateFingerprintRegistry(catalog, baseline, node_fs_1.default.readFileSync(previousDocumentFile, "utf8"), now);
+            registry = result.registry;
+            migration = result.migration;
         }
         else if (options.action === "set") {
             if (!existing)
@@ -239,7 +334,7 @@ function runApiContractRegistry(options) {
             };
         }
         else {
-            throw new Error("First argument must be sync or set");
+            throw new Error("First argument must be sync, migrate-fingerprint, or set");
         }
         if (!options.dryRun) {
             writeAtomic(registryFile, `${JSON.stringify(registry, null, 2)}\n`);
@@ -256,6 +351,7 @@ function runApiContractRegistry(options) {
             service: registry.service,
             environment: registry.environment,
             counts,
+            migration,
             updated_operations: options.action === "set" ? options.operationKeys : undefined,
             request_profile: options.requestProfile,
             files: { registry: options.registryValue, index: options.indexValue },
@@ -286,8 +382,10 @@ exports.apiContractRegistryTool = {
         const level = (0, args_1.consumeOption)(rest, "--level");
         const requestProfile = (0, args_1.consumeOption)(rest, "--request-profile");
         const profileFile = (0, args_1.consumeOption)(rest, "--profile-file");
+        const previousDocumentValue = (0, args_1.consumeOption)(rest, "--previous-document");
+        const previousRegistryValue = (0, args_1.consumeOption)(rest, "--previous-registry");
         if (rest.length > 0)
             throw new Error(`Unknown api_contract_registry arguments: ${rest.join(" ")}`);
-        return runApiContractRegistry({ action, projectRoot: context.projectRoot, catalogValue, registryValue, indexValue, operationKeys, status, lifecycle, note, evidence, level, requestProfile, profileFile, dryRun });
+        return runApiContractRegistry({ action, projectRoot: context.projectRoot, catalogValue, registryValue, indexValue, operationKeys, status, lifecycle, note, evidence, level, requestProfile, profileFile, previousDocumentValue, previousRegistryValue, dryRun });
     },
 };

@@ -128,7 +128,7 @@ OpenAPI 显式接口、文档遗漏接口和统一分发变体使用同一可信
 
 历史 `verified` 且未记录等级的接口按 L2 兼容。特殊线格式以 operation 下具名 `request_profiles` 维护，每个 profile 独立记录等级、证据和序列化规则；一个 profile 的 L3 不能外推到其他 profile。
 
-API 测试执行不能自动升级等级。测试形成 Test Run 后，Agent 必须在独立的契约维护步骤中核对 `run-metadata.json` 的 Contract/部署快照、报告、当前 fingerprint、所用 profile 和请求响应证据，再调用 `api_contract_registry`；执行失败、关联不一致、报告缺失或对应关系不明确时不升级。
+API 测试执行不能自动升级等级。测试形成 Test Run 后，Agent 必须在独立的契约维护步骤中核对 `run-metadata.json` 的 Contract/部署快照、报告、解析后的当前 `resolved_fingerprint`、所用 profile 和请求响应证据，再调用 `api_contract_registry`；资产声明的历史兼容指纹不作为 L3 基准。执行失败、关联不一致、报告缺失或对应关系不明确时不升级。
 
 ### `verified`
 

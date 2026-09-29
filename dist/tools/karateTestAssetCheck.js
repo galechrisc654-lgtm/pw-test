@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.karateTestAssetCheckTool = void 0;
+exports.karateContractReferences = karateContractReferences;
 exports.runKarateTestAssetCheck = runKarateTestAssetCheck;
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
@@ -87,6 +88,31 @@ function parseAsset(projectRoot, assetRoot, file) {
         references: featureReferences(projectRoot, file, content),
     };
 }
+function karateContractReferences(projectRoot, files) {
+    const pending = files.map((file) => node_path_1.default.resolve(file));
+    const visited = new Set();
+    const references = new Map();
+    while (pending.length > 0) {
+        const file = pending.shift();
+        if (visited.has(file) || !node_fs_1.default.existsSync(file))
+            continue;
+        visited.add(file);
+        const content = node_fs_1.default.readFileSync(file, "utf8");
+        pending.push(...featureReferences(projectRoot, file, content));
+        const profiles = new Map();
+        for (const match of content.matchAll(/(?:^|\s)@request-profile=([^:\s]+):([^:\s]+):([A-Za-z][A-Za-z0-9_-]*)/gm)) {
+            profiles.set(`${match[1]}:${match[2]}`, match[3]);
+        }
+        for (const match of content.matchAll(/(?:^|\s)@contract=([^:\s]+):([^:\s]+):([A-Fa-f0-9]{8,64})/gm)) {
+            const reference = {
+                service: match[1], operation_id: match[2], fingerprint: match[3],
+                ...(profiles.has(`${match[1]}:${match[2]}`) ? { request_profile: profiles.get(`${match[1]}:${match[2]}`) } : {}),
+            };
+            references.set(`${reference.service}:${reference.operation_id}:${reference.fingerprint}:${reference.request_profile ?? ""}`, reference);
+        }
+    }
+    return [...references.values()];
+}
 function contractIssues(projectRoot, asset) {
     const issues = [];
     const tagTokens = asset.content
@@ -134,7 +160,7 @@ function contractIssues(projectRoot, asset) {
         if (operation.lifecycle !== "active") {
             issues.push({ code: "inactive-contract-operation", file: asset.relative, message: `Operation ${service}:${operationId} must be active before use.` });
         }
-        if (operation.fingerprint !== fingerprint) {
+        if (!(0, apiContractVerification_1.resolveDeclaredFingerprint)(operation, fingerprint)) {
             issues.push({ code: "contract-fingerprint-mismatch", file: asset.relative, message: `Fingerprint for ${service}:${operationId} does not match the maintained registry.` });
         }
         if (!(0, apiContractVerification_1.isCallableOperation)(operation)) {

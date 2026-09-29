@@ -13,6 +13,7 @@ const testContractSnapshot_1 = require("../core/testContractSnapshot");
 const args_1 = require("./args");
 const deliveryTestReport_1 = require("./deliveryTestReport");
 const integrationResolver_1 = require("./integrationResolver");
+const playwrightTestAssetCheck_1 = require("./playwrightTestAssetCheck");
 const isRecord = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const displayPath = (root, value) => node_path_1.default.relative(root, value).split(node_path_1.default.sep).join("/");
 function requiredText(value, name) { if (typeof value !== "string" || !value.trim())
@@ -100,13 +101,13 @@ function runPlaywrightTest(options) {
         const targetEnvironment = environments[environmentName];
         if (!isRecord(targetEnvironment))
             throw new Error(`Environment not found in integration: ${environmentName}`);
-        const contract = (0, testContractSnapshot_1.contractSnapshot)(options.projectRoot, targetEnvironment);
         const configFile = node_path_1.default.join(options.projectRoot, "resources", "api_test_scenarios-pw", "config", "playwright.config.ts");
         if (!node_fs_1.default.existsSync(configFile))
             throw new Error(`Playwright config not found: ${displayPath(options.projectRoot, configFile)}`);
         const cliPath = runtime.paths.cli;
         const tests = options.tests.map((test) => { const target = projectPath(options.projectRoot, test, "test"); if (!node_fs_1.default.existsSync(target))
             throw new Error(`Test path not found: ${target}`); return target; });
+        const contract = (0, testContractSnapshot_1.contractSnapshot)(options.projectRoot, targetEnvironment, (0, playwrightTestAssetCheck_1.playwrightContractReferences)(options.projectRoot, tests));
         const testArguments = options.tests.map((test) => test.replace(/\\/g, "/"));
         const reportRequired = !options.list && scope.kind !== "simulation";
         const runScope = reportRequired ? requiredText(options.runScope, "--scope") : undefined;

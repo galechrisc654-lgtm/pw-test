@@ -4,6 +4,8 @@ exports.isVerificationLevel = isVerificationLevel;
 exports.effectiveVerificationLevel = effectiveVerificationLevel;
 exports.levelAtLeast = levelAtLeast;
 exports.isCallableOperation = isCallableOperation;
+exports.compatibleFingerprints = compatibleFingerprints;
+exports.resolveDeclaredFingerprint = resolveDeclaredFingerprint;
 exports.requestProfiles = requestProfiles;
 exports.validateRequestProfile = validateRequestProfile;
 const levels = ["L0", "L1", "L2", "L3"];
@@ -24,6 +26,35 @@ function isCallableOperation(operation) {
         && levelAtLeast(effectiveVerificationLevel(operation), "L2")
         && typeof operation.fingerprint === "string"
         && operation.verified_fingerprint === operation.fingerprint;
+}
+function compatibleFingerprints(operation) {
+    if (!Array.isArray(operation.compatible_fingerprints))
+        return [];
+    return operation.compatible_fingerprints.filter((item) => Boolean(item)
+        && typeof item === "object"
+        && typeof item.version === "number"
+        && typeof item.fingerprint === "string");
+}
+function resolveDeclaredFingerprint(operation, declared) {
+    if (typeof operation.fingerprint !== "string" || typeof operation.fingerprint_version !== "number")
+        return undefined;
+    if (operation.fingerprint === declared) {
+        return {
+            declared_fingerprint_version: operation.fingerprint_version,
+            resolved_fingerprint: operation.fingerprint,
+            resolved_fingerprint_version: operation.fingerprint_version,
+            resolution: "current",
+        };
+    }
+    const compatible = compatibleFingerprints(operation).find((item) => item.fingerprint === declared);
+    if (!compatible)
+        return undefined;
+    return {
+        declared_fingerprint_version: compatible.version,
+        resolved_fingerprint: operation.fingerprint,
+        resolved_fingerprint_version: operation.fingerprint_version,
+        resolution: "compatible",
+    };
 }
 function requestProfiles(operation) {
     if (!operation.request_profiles || typeof operation.request_profiles !== "object" || Array.isArray(operation.request_profiles))

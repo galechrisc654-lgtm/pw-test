@@ -2,7 +2,7 @@
 
 ## 分层和元数据
 
-公共业务资产是 Action、Flow、Page 和 Component，必须导出名为 `aiprod` 的字面量对象及稳定 `id`、`title`。Action 在 `contracts` 中声明直接调用的每个 `{ service, operationId, fingerprint, requestProfile? }`；Flow 只声明自身绕过 Action 直接请求的接口。Profile、`internal/`、Shared Data、Utils 和 Fixture 是从属或运行支持模块，不进入公共资产索引，也不导出 `aiprod`。
+公共业务资产是 Action、Flow、Page 和 Component，必须导出名为 `aiprod` 的字面量对象及稳定 `id`、`title`。Action 在 `contracts` 中声明直接调用的每个 `{ service, operationId, fingerprint, requestProfile? }`；新建或维护资产写 registry 的当前 fingerprint，迁移前旧引用只通过同 operation 的 `compatible_fingerprints` 兼容解析，不继续复制。Flow 只声明自身绕过 Action 直接请求的接口。Profile、`internal/`、Shared Data、Utils 和 Fixture 是从属或运行支持模块，不进入公共资产索引，也不导出 `aiprod`。
 
 目录按“资产类型 → 业务域”组织：Action 使用 `actions/{domain}/{action-id}.ts`，Flow 使用 `flows/{domain}/{flow-id}/`，Page 使用 `pages/{domain}/{page-id}.ts`，Component 使用 `components/{domain-or-common}/{component-id}.ts`。完整示例和各支持目录见产品工作区 `resources/api_test_scenarios-pw/README.md`。该结构由维护规则约束，不由检查工具强制拦截；发现历史布局时在维护相关资产时整理，不为无关任务批量迁移。
 

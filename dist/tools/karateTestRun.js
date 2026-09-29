@@ -12,6 +12,7 @@ const testContractSnapshot_1 = require("../core/testContractSnapshot");
 const args_1 = require("./args");
 const deliveryTestReport_1 = require("./deliveryTestReport");
 const integrationResolver_1 = require("./integrationResolver");
+const karateTestAssetCheck_1 = require("./karateTestAssetCheck");
 function isRecord(value) {
     return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -124,7 +125,6 @@ function runKarateTest(options) {
         const targetEnvironment = environments[environmentName];
         if (!isRecord(targetEnvironment))
             throw new Error(`Environment not found in integration: ${environmentName}`);
-        const contract = (0, testContractSnapshot_1.contractSnapshot)(options.projectRoot, targetEnvironment);
         const reportRequired = !options.dryRun && scope.kind !== "simulation";
         const runScope = reportRequired ? requiredText(options.runScope, "--scope") : undefined;
         if (reportRequired) {
@@ -147,6 +147,7 @@ function runKarateTest(options) {
                 throw new Error(`Feature path not found: ${target}`);
             return target;
         });
+        const contract = (0, testContractSnapshot_1.contractSnapshot)(options.projectRoot, targetEnvironment, (0, karateTestAssetCheck_1.karateContractReferences)(options.projectRoot, features));
         const dataFile = options.dataFile ? projectPath(options.projectRoot, options.dataFile, "data file") : undefined;
         if (dataFile && (!node_fs_1.default.existsSync(dataFile) || !node_fs_1.default.statSync(dataFile).isFile()))
             throw new Error(`Data file not found: ${dataFile}`);

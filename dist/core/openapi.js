@@ -11,6 +11,7 @@ exports.parseOpenApi = parseOpenApi;
 exports.validateOpenApi = validateOpenApi;
 exports.resolveJsonPointer = resolveJsonPointer;
 exports.referencedComponentClosure = referencedComponentClosure;
+exports.operationCatalogForFingerprintVersion = operationCatalogForFingerprintVersion;
 exports.operationCatalog = operationCatalog;
 exports.unresolvedLocalRefs = unresolvedLocalRefs;
 exports.deepClone = deepClone;
@@ -116,8 +117,13 @@ function referencedComponentClosure(document, seed) {
     }
     return resolved;
 }
-function operationForFingerprint(operation) {
+function operationForFingerprint(operation, version) {
     const result = deepClone(operation);
+    if (version === 3) {
+        return Object.fromEntries(["requestBody", "responses", "callbacks"]
+            .filter((name) => Object.prototype.hasOwnProperty.call(result, name))
+            .map((name) => [name, result[name]]));
+    }
     delete result.operationId;
     delete result.security;
     delete result.servers;
@@ -125,49 +131,106 @@ function operationForFingerprint(operation) {
     delete result["x-api-contract-source"];
     return result;
 }
+function parameterIdentity(document, value, fallback) {
+    let parameter = value;
+    if (isJsonObject(value) && typeof value.$ref === "string" && value.$ref.startsWith("#/")) {
+        parameter = resolveJsonPointer(document, value.$ref.slice(1));
+    }
+    if (!isJsonObject(parameter) || typeof parameter.name !== "string" || typeof parameter.in !== "string")
+        return fallback;
+    const name = parameter.in === "header" ? parameter.name.toLowerCase() : parameter.name;
+    return `${parameter.in}\u0000${name}`;
+}
+function parameterForFingerprint(document, value) {
+    let parameter = value;
+    if (isJsonObject(value) && typeof value.$ref === "string" && value.$ref.startsWith("#/")) {
+        parameter = resolveJsonPointer(document, value.$ref.slice(1)) ?? value;
+    }
+    if (!isJsonObject(parameter))
+        return parameter;
+    const result = deepClone(parameter);
+    if (result.in === "header" && typeof result.name === "string")
+        result.name = result.name.toLowerCase();
+    return result;
+}
+function effectiveParameters(document, pathItem, operation) {
+    const result = new Map();
+    const add = (parameters, scope) => {
+        if (!Array.isArray(parameters))
+            return;
+        parameters.forEach((parameter, index) => result.set(parameterIdentity(document, parameter, `${scope}\u0000${index}`), parameterForFingerprint(document, parameter)));
+    };
+    add(pathItem.parameters, "path");
+    add(operation.parameters, "operation");
+    return [...result.values()];
+}
+function securitySchemeForFingerprint(value) {
+    if (!isJsonObject(value) || typeof value.type !== "string")
+        return value;
+    if (value.type === "apiKey")
+        return { type: value.type, name: value.name, in: value.in };
+    if (value.type === "http")
+        return { type: value.type, scheme: value.scheme };
+    if (value.type === "oauth2") {
+        return { type: value.type, flows: isJsonObject(value.flows) ? Object.keys(value.flows).sort() : [] };
+    }
+    return { type: value.type };
+}
 // Only annotations are ignored. Map entries and literal payloads may themselves
 // be named "description", "example", etc.; those names remain contractual.
-function protocolValue(document, value, key = "", stack = []) {
+function protocolValue(document, value, key = "", stack = [], version = 3) {
     if (["default", "const", "enum"].includes(key)) {
         if (key === "enum" && Array.isArray(value))
             return value.map(normalized).sort((a, b) => stableStringify(a).localeCompare(stableStringify(b)));
         return normalized(value);
     }
     if (Array.isArray(value)) {
-        const entries = value.map(item => protocolValue(document, item, "", stack));
+        const entries = value.map(item => protocolValue(document, item, "", stack, version));
         return ["required", "parameters", "security", "allOf", "anyOf", "oneOf", "type"].includes(key)
             ? entries.sort((a, b) => stableStringify(a).localeCompare(stableStringify(b))) : entries;
     }
     if (!isJsonObject(value))
         return value;
     if (["properties", "patternProperties", "$defs", "content", "responses", "headers", "encoding", "dependentSchemas"].includes(key)) {
-        return Object.fromEntries(Object.entries(value).map(([name, item]) => [name, protocolValue(document, item, "", stack)]));
+        return Object.fromEntries(Object.entries(value).map(([name, item]) => [name, protocolValue(document, item, "", stack, version)]));
     }
     const result = {};
     for (const [name, item] of Object.entries(value)) {
         if (["summary", "description", "title", "example", "examples", "externalDocs", "tags", "operationId", "x-api-contract-source", "x-api-contract-verification"].includes(name))
             continue;
+        if (version === 3 && (name === "deprecated" || name.startsWith("x-")))
+            continue;
         if (name === "$ref" && typeof item === "string" && item.startsWith("#/")) {
             const ancestor = stack.indexOf(item);
             const target = resolveJsonPointer(document, item.slice(1));
             result.$ref = ancestor >= 0 ? { recursiveDepth: stack.length - ancestor }
-                : target === undefined ? { unresolved: item } : protocolValue(document, target, "", [...stack, item]);
+                : target === undefined ? { unresolved: item } : protocolValue(document, target, "", [...stack, item], version);
         }
         else if (name === "security" && Array.isArray(item)) {
-            result.security = item.map(requirement => !isJsonObject(requirement) ? requirement : Object.fromEntries(Object.entries(requirement).map(([scheme, scopes]) => [scheme, {
-                    definition: protocolValue(document, resolveJsonPointer(document, `/components/securitySchemes/${scheme.replace(/~/g, "~0").replace(/\//g, "~1")}`)),
+            result.security = item.map(requirement => {
+                if (!isJsonObject(requirement))
+                    return requirement;
+                if (version === 2) {
+                    return Object.fromEntries(Object.entries(requirement).map(([scheme, scopes]) => [scheme, {
+                            definition: protocolValue(document, resolveJsonPointer(document, `/components/securitySchemes/${scheme.replace(/~/g, "~0").replace(/\//g, "~1")}`), "", stack, version),
+                            scopes: Array.isArray(scopes) ? [...scopes].sort() : scopes,
+                        }]));
+                }
+                return Object.entries(requirement).map(([scheme, scopes]) => ({
+                    definition: securitySchemeForFingerprint(resolveJsonPointer(document, `/components/securitySchemes/${scheme.replace(/~/g, "~0").replace(/\//g, "~1")}`)),
                     scopes: Array.isArray(scopes) ? [...scopes].sort() : scopes,
-                }]))).sort((a, b) => stableStringify(a).localeCompare(stableStringify(b)));
+                })).sort((a, b) => stableStringify(a).localeCompare(stableStringify(b)));
+            }).sort((a, b) => stableStringify(a).localeCompare(stableStringify(b)));
         }
         else
-            result[name] = protocolValue(document, item, name, stack);
+            result[name] = protocolValue(document, item, name, stack, version);
     }
     return result;
 }
-function protocolFingerprint(document, seed) {
-    return sha256(stableStringify(protocolValue(document, seed)));
+function protocolFingerprint(document, seed, version) {
+    return sha256(stableStringify(protocolValue(document, seed, "", [], version)));
 }
-function variantEntries(document, route, method, pathItem, operation) {
+function variantEntries(document, route, method, pathItem, operation, version) {
     const rawVariants = operation["x-api-contract-variants"];
     if (rawVariants === undefined)
         return undefined;
@@ -185,7 +248,7 @@ function variantEntries(document, route, method, pathItem, operation) {
         if (!isJsonObject(rawVariant.selector) || typeof rawVariant.selector.location !== "string" || typeof rawVariant.selector.path !== "string" || typeof rawVariant.selector.equals !== "string") {
             throw new Error(`Contract variant ${id} requires selector.location, selector.path, and selector.equals`);
         }
-        const variantOperation = operationForFingerprint(operation);
+        const variantOperation = operationForFingerprint(operation, version);
         delete variantOperation["x-api-contract-variants"];
         if (typeof rawVariant.schema_ref === "string") {
             if (!rawVariant.schema_ref.startsWith("#/"))
@@ -202,12 +265,16 @@ function variantEntries(document, route, method, pathItem, operation) {
         const seed = {
             method: method.toUpperCase(),
             path: route,
-            path_parameters: pathItem.parameters ?? [],
             selector: rawVariant.selector,
             operation: variantOperation,
             security: operation.security ?? document.security ?? [],
-            servers: operation.servers ?? pathItem.servers ?? document.servers ?? [],
         };
+        if (version === 2) {
+            seed.path_parameters = pathItem.parameters ?? [];
+            seed.servers = operation.servers ?? pathItem.servers ?? document.servers ?? [];
+        }
+        else
+            seed.parameters = effectiveParameters(document, pathItem, operation);
         const source = isJsonObject(operation["x-api-contract-source"]) ? operation["x-api-contract-source"] : undefined;
         return {
             key: `${method.toUpperCase()} ${route}#${id}`,
@@ -219,12 +286,12 @@ function variantEntries(document, route, method, pathItem, operation) {
             ...(typeof operation.summary === "string" ? { summary: `${operation.summary} [${id}]` } : { summary: id }),
             tags: Array.isArray(operation.tags) ? operation.tags.filter((tag) => typeof tag === "string") : [],
             ...(source ? { source: deepClone(source) } : {}),
-            fingerprint: protocolFingerprint(document, seed),
-            fingerprint_version: 2,
+            fingerprint: protocolFingerprint(document, seed, version),
+            fingerprint_version: version,
         };
     });
 }
-function operationCatalog(document) {
+function operationCatalogForFingerprintVersion(document, version) {
     const paths = document.paths;
     const entries = [];
     for (const route of Object.keys(paths).sort()) {
@@ -235,20 +302,24 @@ function operationCatalog(document) {
             const operation = pathItem[method];
             if (!isJsonObject(operation))
                 continue;
-            const variants = variantEntries(document, route, method, pathItem, operation);
+            const variants = variantEntries(document, route, method, pathItem, operation, version);
             if (variants) {
                 entries.push(...variants);
                 continue;
             }
-            const fingerprintOperation = operationForFingerprint(operation);
+            const fingerprintOperation = operationForFingerprint(operation, version);
             const seed = {
                 method: method.toUpperCase(),
                 path: route,
-                path_parameters: pathItem.parameters ?? [],
                 operation: fingerprintOperation,
                 security: operation.security ?? document.security ?? [],
-                servers: operation.servers ?? pathItem.servers ?? document.servers ?? [],
             };
+            if (version === 2) {
+                seed.path_parameters = pathItem.parameters ?? [];
+                seed.servers = operation.servers ?? pathItem.servers ?? document.servers ?? [];
+            }
+            else
+                seed.parameters = effectiveParameters(document, pathItem, operation);
             const source = isJsonObject(operation["x-api-contract-source"]) ? operation["x-api-contract-source"] : undefined;
             entries.push({
                 key: `${method.toUpperCase()} ${route}`,
@@ -258,12 +329,15 @@ function operationCatalog(document) {
                 ...(typeof operation.summary === "string" ? { summary: operation.summary } : {}),
                 tags: Array.isArray(operation.tags) ? operation.tags.filter((tag) => typeof tag === "string") : [],
                 ...(source ? { source: deepClone(source) } : {}),
-                fingerprint: protocolFingerprint(document, seed),
-                fingerprint_version: 2,
+                fingerprint: protocolFingerprint(document, seed, version),
+                fingerprint_version: version,
             });
         }
     }
     return withStableOperationIds(entries);
+}
+function operationCatalog(document) {
+    return operationCatalogForFingerprintVersion(document, 3);
 }
 function unresolvedLocalRefs(document) {
     const refs = new Set();
